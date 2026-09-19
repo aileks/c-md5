@@ -239,8 +239,8 @@ void print_hash(Context *ctx)
     // write each 32-bit word as 4 little-endian bytes
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
-            // the 'u' in 0xffu keeps the mask explicitly unsigned
-            printf("%02x", (unsigned int)((hash[i] >> (j * 8)) & 0xffu));
+            // mask the byte before printing it
+            printf("%02x", ((hash[i] >> (j * 8)) & 0xff));
         }
     }
 
