@@ -3,3 +3,8 @@
 A reimplementation of the MD5 hashing algorithm from scratch in C.
 
 The `random_data.bin` file is a 1MB file filled with random data for the purposes of testing.
+
+## Sources
+
+- https://www.rfc-editor.org/rfc/rfc1321.html
+- https://en.wikipedia.org/wiki/MD5#Pseudocode
