@@ -9,25 +9,21 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#define DEBUG(fmt, ...)                                                                            \
+#define DEBUG(ctx, fmt, ...)                                                                       \
     do {                                                                                           \
-        if (debug) {                                                                               \
+        if ((ctx)->debug) {                                                                        \
             fprintf(stderr, "[%s():%d] ", __func__, __LINE__);                                     \
             fprintf(stderr, fmt, ##__VA_ARGS__);                                                   \
         }                                                                                          \
     } while (false)
 
-uint64_t byte_count = 0;
-bool debug = false;
-uint8_t block[64] = {0};
-unsigned int block_idx = 0;
-uint32_t s[] = {
+uint32_t const s[] = {
     7,  12, 17, 22, 7,  12, 17, 22, 7,  12, 17, 22, 7,  12, 17, 22, 5,  9,  14, 20, 5,  9,
     14, 20, 5,  9,  14, 20, 5,  9,  14, 20, 4,  11, 16, 23, 4,  11, 16, 23, 4,  11, 16, 23,
     4,  11, 16, 23, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21,
 };
 
-uint32_t K[] = {
+uint32_t const K[] = {
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
     0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
     0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
@@ -38,17 +34,29 @@ uint32_t K[] = {
     0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 };
 
-void process_block()
+typedef struct {
+    uint64_t byte_count;
+    bool debug;
+    uint8_t block[64];
+    size_t block_idx;
+} Context;
+
+void process_block(Context *ctx)
 {
-    DEBUG("processing block\n");
+    DEBUG(ctx, "processing block\n");
 
     uint32_t M[16];
 
+    // clang-format off
     // break block into 16 32-bit words M[i], 0 <= j <= 15
-    for (size_t i; i < 16; ++i) {
-        int j = i * 4;
-        M[i] = block[j] | block[j + 1] << 8 | block[j + 2] << 16 | block[j + 3] << 24;
+    for (size_t i = 0; i < 16; ++i) {
+        size_t j = i * 4;
+        M[i] = ctx->block[j]
+             | ctx->block[j + 1] << 8
+             | ctx->block[j + 2] << 16
+             | ctx->block[j + 3] << 24;
     }
+    // clang-format on
 
     // initialize hash val for block
     uint32_t A = 0x67452301;
@@ -56,7 +64,7 @@ void process_block()
     uint32_t C = 0x98badcfe;
     uint32_t D = 0x10325476;
 
-    for (size_t i; i < 64; ++i) {
+    for (size_t i = 0; i < 64; ++i) {
         uint32_t F;
         uint32_t g;
 
@@ -81,19 +89,19 @@ void process_block()
     }
 }
 
-void process_byte(uint8_t byte)
+void process_byte(Context *ctx, uint8_t byte)
 {
-    DEBUG("processing byte: %u\n", byte);
+    DEBUG(ctx, "processing byte: %u\n", byte);
 
-    block[block_idx++] = byte;
+    ctx->block[ctx->block_idx++] = byte;
 
-    if (block_idx == 64) {
-        process_block();
-        block_idx = 0;
+    if (ctx->block_idx == 64) {
+        process_block(ctx);
+        ctx->block_idx = 0;
     }
 }
 
-int process_input(int file_desc)
+int process_input(Context *ctx, int file_desc)
 {
     while (true) {
         // read data from file descriptor
@@ -116,12 +124,9 @@ int process_input(int file_desc)
 
         for (ssize_t i = 0; i < n; ++i) {
             uint8_t byte = buf[i];
-            process_byte(byte);
-            byte_count++;
+            process_byte(ctx, byte);
+            ctx->byte_count++;
         }
-
-        // loop through data byte-by-byte
-        // call process_byte(byte);
     }
 
     return 0;
@@ -131,23 +136,33 @@ void print_hash() {}
 
 int main(int argc, char **argv)
 {
-    debug = getenv("DEBUG") != NULL;
-    int file_desc = 0;
+    Context ctx = {
+        .byte_count = 0,
+        .debug = getenv("DEBUG") != NULL,
+        .block = {0},
+        .block_idx = 0,
+    };
+
+    int file_desc = STDIN_FILENO;
 
     // read file arg
     if (argc > 1) {
         char *fname = argv[1];
 
-        DEBUG("opening file: %s\n", fname);
-        file_desc = open(fname, O_RDONLY);
+        DEBUG(&ctx, "opening file: %s\n", fname);
 
+        file_desc = open(fname, O_RDONLY);
         if (file_desc == -1) {
             perror("open");
             return 1;
         }
     }
 
-    process_input(file_desc);
+    if (process_input(&ctx, file_desc) == -1) {
+        perror("process_input");
+        return 1;
+    };
+
     close(file_desc);
     print_hash();
 
