@@ -1,3 +1,14 @@
+/*
+ * MD5 processes messages in 512-bit (i.e. 64-byte) blocks.
+ *
+ * Each block is interpreted as 16 32-bit words.
+ * The compression function then performs 64 operations divided into four rounds.
+ *
+ * See:
+ *   RFC 1321, §3.4: "Process Message in 16-Word Blocks"
+ *   https://www.rfc-editor.org/rfc/rfc1321.html#section-3.4
+ */
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -17,12 +28,44 @@
         }                                                                                          \
     } while (false)
 
+/*
+ * Left-rotation amounts for each of the 64 MD5 operations.
+ *
+ * The 64 operations are divided into four rounds of 16 operations:
+ *   Round 1: 7, 12, 17, 22
+ *   Round 2: 5,  9, 14, 20
+ *   Round 3: 4, 11, 16, 23
+ *   Round 4: 6, 10, 15, 21
+ *
+ * The values are repeated four times within each round.
+ *
+ * RFC 1321 refers to these as the S11..S44 shift constants.
+ *
+ * See:
+ *   RFC 1321, §3.4 and Appendix A
+ *   https://www.rfc-editor.org/rfc/rfc1321.html#section-3.4
+ *   https://www.rfc-editor.org/rfc/rfc1321.html#page-7
+ */
 uint32_t const s[] = {
     7,  12, 17, 22, 7,  12, 17, 22, 7,  12, 17, 22, 7,  12, 17, 22, 5,  9,  14, 20, 5,  9,
     14, 20, 5,  9,  14, 20, 5,  9,  14, 20, 4,  11, 16, 23, 4,  11, 16, 23, 4,  11, 16, 23,
     4,  11, 16, 23, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21,
 };
 
+/*
+ * Additive constants used by the 64 MD5 operations.
+ *
+ * K[i] is derived from the sine function:
+ *     K[i] = floor(2^32 * abs(sin(i + 1)))
+ * where the sine argument is measured in radians.
+ *
+ * These constants are intentionally fixed by the MD5 specification rather
+ * than generated at runtime. RFC 1321 calls this table T[1..64].
+ *
+ * See:
+ *   RFC 1321, §3.4
+ *   https://www.rfc-editor.org/rfc/rfc1321.html#section-3.4
+ */
 uint32_t const K[] = {
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
     0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
@@ -59,7 +102,7 @@ void process_block(Context *ctx)
     }
     // clang-format on
 
-    // initialize hash val for block
+    // initialize hash state for this block
     uint32_t A = 0x67452301;
     uint32_t B = 0xefcdab89;
     uint32_t C = 0x98badcfe;
@@ -70,20 +113,27 @@ void process_block(Context *ctx)
         size_t g;
 
         if (i < 16) {
+            // round 1
             F = (B & C) | (~B & D);
             g = i;
         } else if (i < 32) {
+            // round 2
             F = (D & B) | (~D & C);
             g = (5 * i + 1) % 16;
         } else if (i < 48) {
+            // round 3
             F = B ^ C ^ D;
             g = (3 * i + 5) % 16;
         } else {
+            // round 4
             F = C ^ (B | ~D);
             g = (7 * i) % 16;
         }
 
+        // add the round function, message word, and constant
         F = F + A + K[i] + M[g];
+
+        // rotate the working state for the next op
         A = D;
         D = C;
         C = B;
@@ -97,6 +147,7 @@ void process_byte(Context *ctx, uint8_t byte)
 
     ctx->block[ctx->block_idx++] = byte;
 
+    // process each complete 64-byte block
     if (ctx->block_idx == 64) {
         process_block(ctx);
         ctx->block_idx = 0;
@@ -111,8 +162,10 @@ int process_input(Context *ctx, int file_desc)
         ssize_t n = read(file_desc, buf, sizeof buf);
 
         if (n == -1) {
-            // read returned an error
+            // `read` returned an error
             switch (errno) {
+                // EINTR means `read` was interrupted by a signal before finishing
+                // this isn't an abort-level error -> retry read
                 case EINTR:
                     continue;
                 default:
