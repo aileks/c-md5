@@ -1,5 +1,5 @@
 /*
- * MD5 processes messages in 512-bit (i.e. 64-byte) blocks.
+ * MD5 processes messages in 512-bit (i.e. 64-byte, little-endian) blocks.
  *
  * Each block is interpreted as 16 32-bit words.
  * The compression function then performs 64 operations divided into four rounds.
@@ -82,6 +82,10 @@ typedef struct {
     bool debug;
     uint8_t block[64];
     size_t block_idx;
+    uint32_t A;
+    uint32_t B;
+    uint32_t C;
+    uint32_t D;
 } Context;
 
 void process_block(Context *ctx)
@@ -103,10 +107,10 @@ void process_block(Context *ctx)
     // clang-format on
 
     // initialize hash state for this block
-    uint32_t A = 0x67452301;
-    uint32_t B = 0xefcdab89;
-    uint32_t C = 0x98badcfe;
-    uint32_t D = 0x10325476;
+    uint32_t A = ctx->A;
+    uint32_t B = ctx->B;
+    uint32_t C = ctx->C;
+    uint32_t D = ctx->D;
 
     for (size_t i = 0; i < 64; ++i) {
         uint32_t F;
@@ -139,6 +143,12 @@ void process_block(Context *ctx)
         C = B;
         B += F << s[i] | F >> (32 - s[i]);
     }
+
+    // add the transformed state back into the running hash.
+    ctx->A += A;
+    ctx->B += B;
+    ctx->C += C;
+    ctx->D += D;
 }
 
 void process_byte(Context *ctx, uint8_t byte)
@@ -184,6 +194,34 @@ int process_input(Context *ctx, int file_desc)
         }
     }
 
+    // pad the message with a 1 bit followed by zero bits until 56 bytes remain.
+    process_byte(ctx, 0x80);
+    while (ctx->block_idx != 56) {
+        process_byte(ctx, 0);
+    }
+
+    // append the original message length (in bits) as a 64-bit value
+    // split the 64-bit bit count into its low and high 32-bit words
+    uint32_t low = (uint32_t)ctx->byte_count << 3;
+    uint32_t high = (uint32_t)ctx->byte_count >> 29;
+
+    for (int i = 0; i < 4; ++i) {
+        uint8_t byte = low >> (i * 8) & 0xff;
+        DEBUG(ctx, "[low bits @ %d]: %u\n", i, byte);
+        process_byte(ctx, byte);
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        uint8_t byte = high >> (i * 8) & 0xff;
+        DEBUG(ctx, "[high bits @ %d]: %u\n", i, byte);
+        process_byte(ctx, byte);
+    }
+
+    if (ctx->block_idx != 0) {
+        perror("bad block index");
+        return -1;
+    }
+
     return 0;
 }
 
@@ -196,6 +234,10 @@ int main(int argc, char **argv)
         .debug = getenv("DEBUG") != NULL,
         .block = {0},
         .block_idx = 0,
+        .A = 0x67452301,
+        .B = 0xefcdab89,
+        .C = 0x98badcfe,
+        .D = 0x10325476,
     };
 
     int file_desc = STDIN_FILENO;
