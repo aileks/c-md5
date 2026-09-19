@@ -202,7 +202,8 @@ static int process_input(Context *ctx, int file_desc)
         }
     }
 
-    // pad the message with a 1 bit followed by zero bits until 56 bytes remain.
+    // pad the message with a 1 bit followed by zero bits until 56 bytes remain
+    // the file size is appended after the fact, hence the stopping point 56 bytes
     process_byte(ctx, MD5_PAD_START);
     while (ctx->block_idx != MD5_PAD_TARGET) {
         process_byte(ctx, 0);
