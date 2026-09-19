@@ -51,10 +51,11 @@ void process_block(Context *ctx)
     // break block into 16 32-bit words M[i], 0 <= j <= 15
     for (size_t i = 0; i < 16; ++i) {
         size_t j = i * 4;
-        M[i] = ctx->block[j]
-             | ctx->block[j + 1] << 8
-             | ctx->block[j + 2] << 16
-             | ctx->block[j + 3] << 24;
+        // bitwise operators cause integer promotion -> cast to uint32_t 
+        M[i] = (uint32_t)ctx->block[j]
+             | (uint32_t)ctx->block[j + 1] << 8
+             | (uint32_t)ctx->block[j + 2] << 16
+             | (uint32_t)ctx->block[j + 3] << 24;
     }
     // clang-format on
 
@@ -66,7 +67,7 @@ void process_block(Context *ctx)
 
     for (size_t i = 0; i < 64; ++i) {
         uint32_t F;
-        uint32_t g;
+        size_t g;
 
         if (i < 16) {
             F = (B & C) | (~B & D);
@@ -79,6 +80,7 @@ void process_block(Context *ctx)
             g = (3 * i + 5) % 16;
         } else {
             F = C ^ (B | ~D);
+            g = (7 * i) % 16;
         }
 
         F = F + A + K[i] + M[g];
