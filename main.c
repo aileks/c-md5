@@ -28,6 +28,13 @@
         }                                                                                          \
     } while (false)
 
+#define MD5_BLOCK_SIZE 64  // bytes in one MD5 block (RFC 1321 §3.4)
+#define MD5_PAD_START 0x80 // first byte of the padding sequence
+#define MD5_LENGTH_BYTES 8 // size of the trailing 64-bit length field
+#define MD5_PAD_TARGET (MD5_BLOCK_SIZE - MD5_LENGTH_BYTES)
+
+#define READ_BUFFER_SIZE 4096
+
 /*
  * Left-rotation amounts for each of the 64 MD5 operations.
  *
@@ -46,7 +53,7 @@
  *   https://www.rfc-editor.org/rfc/rfc1321.html#section-3.4
  *   https://www.rfc-editor.org/rfc/rfc1321.html#page-7
  */
-uint32_t const s[] = {
+static uint32_t const s[] = {
     7,  12, 17, 22, 7,  12, 17, 22, 7,  12, 17, 22, 7,  12, 17, 22, 5,  9,  14, 20, 5,  9,
     14, 20, 5,  9,  14, 20, 5,  9,  14, 20, 4,  11, 16, 23, 4,  11, 16, 23, 4,  11, 16, 23,
     4,  11, 16, 23, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21,
@@ -66,7 +73,7 @@ uint32_t const s[] = {
  *   RFC 1321, §3.4
  *   https://www.rfc-editor.org/rfc/rfc1321.html#section-3.4
  */
-uint32_t const K[] = {
+static uint32_t const K[] = {
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
     0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
     0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
@@ -80,7 +87,7 @@ uint32_t const K[] = {
 typedef struct {
     uint64_t byte_count;
     bool debug;
-    uint8_t block[64];
+    uint8_t block[MD5_BLOCK_SIZE];
     size_t block_idx;
     uint32_t A;
     uint32_t B;
@@ -88,7 +95,7 @@ typedef struct {
     uint32_t D;
 } Context;
 
-void process_block(Context *ctx)
+static void process_block(Context *ctx)
 {
     DEBUG(ctx, "processing block\n");
 
@@ -141,34 +148,35 @@ void process_block(Context *ctx)
         A = D;
         D = C;
         C = B;
-        B += F << s[i] | F >> (32 - s[i]);
+        B += (F << s[i]) | (F >> (32 - s[i]));
     }
 
-    // add the transformed state back into the running hash.
+    // add the transformed state back into the running hash
     ctx->A += A;
     ctx->B += B;
     ctx->C += C;
     ctx->D += D;
 }
 
-void process_byte(Context *ctx, uint8_t byte)
+static void process_byte(Context *ctx, uint8_t byte)
 {
     DEBUG(ctx, "processing byte: %u\n", byte);
 
     ctx->block[ctx->block_idx++] = byte;
 
     // process each complete 64-byte block
-    if (ctx->block_idx == 64) {
+    if (ctx->block_idx == MD5_BLOCK_SIZE) {
         process_block(ctx);
         ctx->block_idx = 0;
     }
 }
 
-int process_input(Context *ctx, int file_desc)
+static int process_input(Context *ctx, int file_desc)
 {
+    uint8_t buf[READ_BUFFER_SIZE];
+
     while (true) {
         // read the next chunk from input
-        uint8_t buf[4096];
         ssize_t n = read(file_desc, buf, sizeof buf);
 
         if (n == -1) {
@@ -195,14 +203,15 @@ int process_input(Context *ctx, int file_desc)
     }
 
     // pad the message with a 1 bit followed by zero bits until 56 bytes remain.
-    process_byte(ctx, 0x80);
-    while (ctx->block_idx != 56) {
+    process_byte(ctx, MD5_PAD_START);
+    while (ctx->block_idx != MD5_PAD_TARGET) {
         process_byte(ctx, 0);
     }
 
     // split the 64-bit bit count into its low and high 32-bit words
-    uint32_t low = (uint32_t)ctx->byte_count << 3;
-    uint32_t high = (uint32_t)ctx->byte_count >> 29;
+    uint64_t bit_count = ctx->byte_count << 3;
+    uint32_t low = (uint32_t)bit_count;
+    uint32_t high = (uint32_t)(bit_count >> 32);
 
     // append the low 32 bits of the message length
     for (int i = 0; i < 4; ++i) {
@@ -220,14 +229,14 @@ int process_input(Context *ctx, int file_desc)
 
     // double-check padded block was processed completely
     if (ctx->block_idx != 0) {
-        perror("bad block index");
+        fprintf(stderr, "bad block index: %zu\n", ctx->block_idx);
         return -1;
     }
 
     return 0;
 }
 
-void print_hash(Context *ctx)
+static void print_hash(Context *ctx)
 {
     uint32_t hash[] = {
         ctx->A,
@@ -276,9 +285,9 @@ int main(int argc, char **argv)
     }
 
     if (process_input(&ctx, file_desc) == -1) {
-        perror("process_input");
+        fprintf(stderr, "process_input failed\n");
         return 1;
-    };
+    }
 
     close(file_desc);
     print_hash(&ctx);
