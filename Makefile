@@ -5,7 +5,7 @@
 # @version 0.1
 
 CC     := clang
-CFLAGS := -std=c17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -g
+CFLAGS := -std=c17 -Wall -Wextra -Wconversion -Wshadow -g
 TARGET := md5
 
 $(TARGET): main.c
@@ -14,7 +14,7 @@ $(TARGET): main.c
 .PHONY: clean run
 
 run: $(TARGET)
-	./$(TARGET)
+	./$(TARGET) random_data.bin
 
 clean:
 	rm -f $(TARGET)
