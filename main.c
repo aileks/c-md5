@@ -225,7 +225,23 @@ int process_input(Context *ctx, int file_desc)
     return 0;
 }
 
-void print_hash() {}
+void print_hash(Context *ctx)
+{
+    uint32_t hash[] = {
+        ctx->A,
+        ctx->B,
+        ctx->C,
+        ctx->D,
+    };
+
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            printf("%02x", (unsigned int)((hash[i] >> (j * 8)) & 0xffu));
+        }
+    }
+
+    putchar('\n');
+}
 
 int main(int argc, char **argv)
 {
@@ -261,7 +277,7 @@ int main(int argc, char **argv)
     };
 
     close(file_desc);
-    print_hash();
+    print_hash(&ctx);
 
     return 0;
 }
