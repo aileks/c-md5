@@ -167,7 +167,7 @@ void process_byte(Context *ctx, uint8_t byte)
 int process_input(Context *ctx, int file_desc)
 {
     while (true) {
-        // read data from file descriptor
+        // read the next chunk from input
         uint8_t buf[4096];
         ssize_t n = read(file_desc, buf, sizeof buf);
 
@@ -200,23 +200,25 @@ int process_input(Context *ctx, int file_desc)
         process_byte(ctx, 0);
     }
 
-    // append the original message length (in bits) as a 64-bit value
     // split the 64-bit bit count into its low and high 32-bit words
     uint32_t low = (uint32_t)ctx->byte_count << 3;
     uint32_t high = (uint32_t)ctx->byte_count >> 29;
 
+    // append the low 32 bits of the message length
     for (int i = 0; i < 4; ++i) {
         uint8_t byte = low >> (i * 8) & 0xff;
         DEBUG(ctx, "[low bits @ %d]: %u\n", i, byte);
         process_byte(ctx, byte);
     }
 
+    // append the high 32 bits of the message length
     for (int i = 0; i < 4; ++i) {
         uint8_t byte = high >> (i * 8) & 0xff;
         DEBUG(ctx, "[high bits @ %d]: %u\n", i, byte);
         process_byte(ctx, byte);
     }
 
+    // double-check padded block was processed completely
     if (ctx->block_idx != 0) {
         perror("bad block index");
         return -1;
@@ -234,8 +236,10 @@ void print_hash(Context *ctx)
         ctx->D,
     };
 
+    // write each 32-bit word as 4 little-endian bytes
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
+            // the 'u' in 0xffu keeps the mask explicitly unsigned
             printf("%02x", (unsigned int)((hash[i] >> (j * 8)) & 0xffu));
         }
     }
