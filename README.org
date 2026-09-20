@@ -1,4 +1,4 @@
-# C MD5
+#+title: C MD5
 
 A reimplementation of the MD5 hashing algorithm from scratch in C.
 
